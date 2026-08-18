@@ -1,4 +1,4 @@
-name: Site Auditor RouterAI Paid Acceptance Observer
+name: Site Auditor RouterAI Diagnostics Observer
 
 on:
   pull_request:
@@ -15,14 +15,15 @@ jobs:
     env:
       TARGET_SHA: 896f8ef2ed6d14f907e729c352d020cba4cac59a
       TARGET_REPO: Dimar4713/AIMETON_site_auditor
+      NOT_BEFORE_UTC: 2026-08-18T03:52:20Z
     steps:
-      - name: Wait for exact-SHA RouterAI acceptance completion
+      - name: Wait for exact-SHA sanitized mission diagnostics
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          api="https://api.github.com/repos/$TARGET_REPO/actions/workflows/accept-routerai-synthesis-stage.yml/runs?event=workflow_dispatch&per_page=20"
+          api="https://api.github.com/repos/$TARGET_REPO/actions/workflows/stage-mission-diagnostics.yml/runs?event=workflow_dispatch&per_page=30"
           deadline=$((SECONDS + 390))
           while (( SECONDS < deadline )); do
             curl --fail-with-body --silent --show-error --max-time 30 \
@@ -30,10 +31,11 @@ jobs:
               -H 'Accept: application/vnd.github+json' \
               -H 'X-GitHub-Api-Version: 2022-11-28' \
               "$api" > "$RUNNER_TEMP/runs.json"
-            result="$(python3 - "$RUNNER_TEMP/runs.json" "$TARGET_SHA" <<'PY'
+            result="$(python3 - "$RUNNER_TEMP/runs.json" "$TARGET_SHA" "$NOT_BEFORE_UTC" <<'PY'
           import json, sys
-          path, sha=sys.argv[1:]
-          candidates=[r for r in json.load(open(path,encoding='utf-8')).get('workflow_runs',[]) if r.get('head_sha')==sha]
+          path, sha, not_before=sys.argv[1:]
+          candidates=[r for r in json.load(open(path,encoding='utf-8')).get('workflow_runs',[])
+                      if r.get('head_sha')==sha and (r.get('created_at') or '') >= not_before]
           if not candidates:
               print('NONE')
           else:
@@ -41,7 +43,7 @@ jobs:
               print('|'.join([str(r.get('id')),str(r.get('status')),str(r.get('conclusion')),str(r.get('run_number')),str(r.get('created_at'))]))
           PY
           )"
-            echo "ROUTERAI_ACCEPTANCE=$result"
+            echo "MISSION_DIAGNOSTICS=$result"
             if [[ "$result" != NONE ]]; then
               IFS='|' read -r run_id status conclusion run_number created_at <<< "$result"
               if [[ "$status" == completed ]]; then
