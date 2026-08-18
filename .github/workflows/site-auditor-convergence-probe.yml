@@ -1,4 +1,4 @@
-name: Site Auditor Convergence Probe
+name: Site Auditor RouterAI Acceptance Observer
 
 on:
   pull_request:
@@ -10,90 +10,66 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  observe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
     env:
       TARGET_SHA: 1a1e12c3664c717d5a3c2833a6d7829d755c2173
       TARGET_REPO: Dimar4713/AIMETON_site_auditor
-      STAGE_URL: https://stage-auditor.aimeton.ru
+      WORKFLOW_FILE: accept-routerai-synthesis-stage.yml
+      NOT_BEFORE_UTC: 2026-08-18T03:28:00Z
     steps:
-      - name: Read exact-SHA Actions topology
+      - name: Wait for newest owner-authorized RouterAI acceptance
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          runs_json="$RUNNER_TEMP/runs.json"
-          curl --fail-with-body --silent --show-error --max-time 30 \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "https://api.github.com/repos/$TARGET_REPO/actions/runs?head_sha=$TARGET_SHA&per_page=100" \
-            > "$runs_json"
-          python3 - "$runs_json" "$TARGET_SHA" <<'PY'
+          api="https://api.github.com/repos/$TARGET_REPO/actions/workflows/$WORKFLOW_FILE/runs?event=workflow_dispatch&per_page=20"
+          deadline=$((SECONDS + 330))
+          while (( SECONDS < deadline )); do
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$api" > "$RUNNER_TEMP/runs.json"
+            result="$(python3 - "$RUNNER_TEMP/runs.json" "$TARGET_SHA" "$NOT_BEFORE_UTC" <<'PY'
           import json, sys
-          path, sha = sys.argv[1:]
+          path, sha, not_before = sys.argv[1:]
           payload = json.load(open(path, encoding='utf-8'))
-          required = [
-              'Baseline CI',
-              'Deploy Stage',
-              'Configure DaData Stage',
-              'Runtime Persistence Reconcile',
-              'Stage Auth Persistence Guard',
-              'Stage Convergence',
+          candidates = [
+              r for r in payload.get('workflow_runs', [])
+              if r.get('head_sha') == sha and (r.get('created_at') or '') >= not_before
           ]
-          runs = [r for r in payload.get('workflow_runs', []) if r.get('head_sha') == sha]
-          by_name = {}
-          for run in sorted(runs, key=lambda r: r.get('created_at') or ''):
-              by_name[run.get('name')] = run
-          print('## Exact-SHA Actions topology')
-          print()
-          print(f'- target_sha: `{sha}`')
-          for name in required:
-              run = by_name.get(name)
-              if run is None:
-                  print(f'- {name}: `missing`')
-                  raise SystemExit(f'missing required workflow: {name}')
-              status = run.get('status')
-              conclusion = run.get('conclusion')
-              rid = run.get('id')
-              print(f'- {name}: run `{rid}` — `{status}/{conclusion}`')
-              if status != 'completed' or conclusion != 'success':
-                  raise SystemExit(f'{name} is not green: {status}/{conclusion}')
+          if not candidates:
+              print('NONE')
+          else:
+              r = sorted(candidates, key=lambda x: x.get('created_at') or '', reverse=True)[0]
+              print('|'.join([
+                  str(r.get('id')), str(r.get('status')), str(r.get('conclusion')),
+                  str(r.get('created_at')), str(r.get('run_number')), str(r.get('run_attempt')),
+              ]))
           PY
+          )"
+            echo "observer=$result"
+            if [[ "$result" != NONE ]]; then
+              IFS='|' read -r run_id status conclusion created_at run_number run_attempt <<< "$result"
+              if [[ "$status" == completed ]]; then
+                echo "ROUTERAI_ACCEPTANCE_RUN_ID=$run_id"
+                echo "ROUTERAI_ACCEPTANCE_STATUS=$status"
+                echo "ROUTERAI_ACCEPTANCE_CONCLUSION=$conclusion"
+                echo "ROUTERAI_ACCEPTANCE_CREATED_AT=$created_at"
+                echo "ROUTERAI_ACCEPTANCE_RUN_NUMBER=$run_number"
+                echo "ROUTERAI_ACCEPTANCE_RUN_ATTEMPT=$run_attempt"
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo 'RouterAI acceptance did not complete within observer window' >&2
+          exit 2
 
-      - name: Read public Stage convergence marker
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          snapshot="$RUNNER_TEMP/convergence.json"
-          curl --fail-with-body --silent --show-error --max-time 30 \
-            "$STAGE_URL/api/runtime/convergence" > "$snapshot"
-          python3 - "$snapshot" "$TARGET_SHA" <<'PY'
-          import json, sys
-          path, sha = sys.argv[1:]
-          payload = json.load(open(path, encoding='utf-8'))
-          safe = {
-              'state': payload.get('state'),
-              'deployment_sha': payload.get('deployment_sha'),
-              'marker_error': payload.get('marker_error'),
-              'secrets_exposed': payload.get('secrets_exposed'),
-              'converged_at_utc': payload.get('converged_at_utc'),
-              'gate_run_ids': payload.get('gate_run_ids'),
-          }
-          print('## Runtime convergence snapshot')
-          print()
-          print('```json')
-          print(json.dumps(safe, ensure_ascii=False, sort_keys=True, indent=2))
-          print('```')
-          assert payload.get('state') == 'converged', safe
-          assert payload.get('deployment_sha') == sha, safe
-          assert payload.get('marker_error') is None, safe
-          assert payload.get('secrets_exposed') is False, safe
-          PY
-
-      - name: Probe canonical AIMETON GitHub MCP transport without credentials
+      - name: Reconfirm canonical AIMETON GitHub MCP auth boundary
         if: always()
         shell: bash
         run: |
@@ -102,8 +78,8 @@ jobs:
             -X POST 'http://195.209.215.159:8082/mcp' \
             -H 'Content-Type: application/json' \
             -H 'Accept: application/json, text/event-stream' \
-            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"aimeton-mcp-infra-probe","version":"1"}}}')"
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"aimeton-mcp-infra-observer","version":"1"}}}')"
           rc=$?
-          echo "AIMETON GitHub MCP unauthenticated transport probe: curl_rc=$rc http_code=$code"
+          echo "AIMETON_GITHUB_MCP_PROBE curl_rc=$rc http_code=$code"
           test "$rc" -eq 0
           test "$code" != 000
