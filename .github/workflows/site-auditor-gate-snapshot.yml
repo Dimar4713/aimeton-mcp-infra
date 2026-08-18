@@ -1,4 +1,4 @@
-name: Site Auditor RouterAI Paid Acceptance Observer
+name: Site Auditor RouterAI Diagnostics Observer
 
 on:
   pull_request:
@@ -15,15 +15,15 @@ jobs:
     env:
       TARGET_SHA: 3a61b53e6ad5a0f97a5296e95d2a393b5123c187
       TARGET_REPO: Dimar4713/AIMETON_site_auditor
-      NOT_BEFORE_UTC: 2026-08-18T05:18:30Z
+      NOT_BEFORE_UTC: 2026-08-18T05:20:35Z
     steps:
-      - name: Wait for exact-SHA RouterAI acceptance completion
+      - name: Wait for exact-SHA sanitized mission diagnostics
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          api="https://api.github.com/repos/$TARGET_REPO/actions/workflows/accept-routerai-synthesis-stage.yml/runs?event=workflow_dispatch&per_page=20"
+          api="https://api.github.com/repos/$TARGET_REPO/actions/workflows/stage-mission-diagnostics.yml/runs?event=workflow_dispatch&per_page=30"
           deadline=$((SECONDS + 390))
           while (( SECONDS < deadline )); do
             curl --fail-with-body --silent --show-error --max-time 30 \
@@ -43,7 +43,7 @@ jobs:
               print('|'.join([str(r.get('id')),str(r.get('status')),str(r.get('conclusion')),str(r.get('run_number')),str(r.get('created_at'))]))
           PY
           )"
-            echo "ROUTERAI_ACCEPTANCE=$result"
+            echo "MISSION_DIAGNOSTICS=$result"
             if [[ "$result" != NONE ]]; then
               IFS='|' read -r run_id status conclusion run_number created_at <<< "$result"
               if [[ "$status" == completed ]]; then
