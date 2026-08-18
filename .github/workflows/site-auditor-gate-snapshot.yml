@@ -22,7 +22,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          echo 'snapshot_refresh=2'
+          echo 'snapshot_refresh=3'
           curl --fail-with-body --silent --show-error --max-time 30 \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'Accept: application/vnd.github+json' \
