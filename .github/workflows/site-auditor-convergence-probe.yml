@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      TARGET_SHA: 61d5418a50d891cd24046a1f5a6f935c5af16a1d
+      TARGET_SHA: 1128b64d3bc401f64842aef49d7d78a6b5d60715
       TARGET_REPO: Dimar4713/AIMETON_site_auditor
       STAGE_URL: https://stage-auditor.aimeton.ru
     steps:
