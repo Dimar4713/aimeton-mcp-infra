@@ -1,4 +1,4 @@
-name: Site Auditor RouterAI Acceptance Observer
+name: Site Auditor Diagnostics Observer
 
 on:
   pull_request:
@@ -11,20 +11,19 @@ permissions:
 jobs:
   observe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     env:
       TARGET_SHA: 1128b64d3bc401f64842aef49d7d78a6b5d60715
       TARGET_REPO: Dimar4713/AIMETON_site_auditor
-      WORKFLOW_NAME: Accept RouterAI Synthesis Stage
+      WORKFLOW_NAME: Stage Mission Diagnostics
     steps:
-      - name: Wait for one exact-SHA paid acceptance run
+      - name: Wait for exact-SHA diagnostics run
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          deadline=$((SECONDS + 660))
-          chosen=''
+          deadline=$((SECONDS + 420))
           while (( SECONDS < deadline )); do
             curl --fail-with-body --silent --show-error --max-time 30 \
               -H "Authorization: Bearer $GH_TOKEN" \
@@ -43,11 +42,10 @@ jobs:
           )"
             echo "$chosen"
             case "$chosen" in
-              MISSING) sleep 8 ;;
+              MISSING) sleep 6 ;;
               *'|completed|success|'*) exit 0 ;;
               *'|completed|'*) exit 3 ;;
-              *) sleep 8 ;;
+              *) sleep 6 ;;
             esac
           done
-          echo 'acceptance run did not reach terminal state' >&2
           exit 2
