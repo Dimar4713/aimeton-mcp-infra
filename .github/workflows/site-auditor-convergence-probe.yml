@@ -1,10 +1,9 @@
-name: Site Auditor RouterAI Acceptance Observer
+name: Site Auditor Diagnostics Observer
 
 on:
   pull_request:
     paths:
       - ".github/workflows/site-auditor-convergence-probe.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,21 +11,21 @@ permissions:
 jobs:
   observe:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 5
     env:
       TARGET_SHA: 1a1e12c3664c717d5a3c2833a6d7829d755c2173
       TARGET_REPO: Dimar4713/AIMETON_site_auditor
-      WORKFLOW_FILE: accept-routerai-synthesis-stage.yml
-      NOT_BEFORE_UTC: 2026-08-18T03:28:00Z
+      WORKFLOW_FILE: stage-mission-diagnostics.yml
+      NOT_BEFORE_UTC: 2026-08-18T03:31:00Z
     steps:
-      - name: Wait for newest owner-authorized RouterAI acceptance
+      - name: Wait for exact-SHA Stage diagnostics
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
           api="https://api.github.com/repos/$TARGET_REPO/actions/workflows/$WORKFLOW_FILE/runs?event=workflow_dispatch&per_page=20"
-          deadline=$((SECONDS + 330))
+          deadline=$((SECONDS + 240))
           while (( SECONDS < deadline )); do
             curl --fail-with-body --silent --show-error --max-time 30 \
               -H "Authorization: Bearer $GH_TOKEN" \
@@ -37,49 +36,28 @@ jobs:
           import json, sys
           path, sha, not_before = sys.argv[1:]
           payload = json.load(open(path, encoding='utf-8'))
-          candidates = [
-              r for r in payload.get('workflow_runs', [])
-              if r.get('head_sha') == sha and (r.get('created_at') or '') >= not_before
-          ]
+          candidates = [r for r in payload.get('workflow_runs', [])
+                        if r.get('head_sha') == sha and (r.get('created_at') or '') >= not_before]
           if not candidates:
               print('NONE')
           else:
               r = sorted(candidates, key=lambda x: x.get('created_at') or '', reverse=True)[0]
-              print('|'.join([
-                  str(r.get('id')), str(r.get('status')), str(r.get('conclusion')),
-                  str(r.get('created_at')), str(r.get('run_number')), str(r.get('run_attempt')),
-              ]))
+              print('|'.join([str(r.get('id')), str(r.get('status')), str(r.get('conclusion')),
+                              str(r.get('created_at')), str(r.get('run_number'))]))
           PY
           )"
             echo "observer=$result"
             if [[ "$result" != NONE ]]; then
-              IFS='|' read -r run_id status conclusion created_at run_number run_attempt <<< "$result"
+              IFS='|' read -r run_id status conclusion created_at run_number <<< "$result"
               if [[ "$status" == completed ]]; then
-                echo "ROUTERAI_ACCEPTANCE_RUN_ID=$run_id"
-                echo "ROUTERAI_ACCEPTANCE_STATUS=$status"
-                echo "ROUTERAI_ACCEPTANCE_CONCLUSION=$conclusion"
-                echo "ROUTERAI_ACCEPTANCE_CREATED_AT=$created_at"
-                echo "ROUTERAI_ACCEPTANCE_RUN_NUMBER=$run_number"
-                echo "ROUTERAI_ACCEPTANCE_RUN_ATTEMPT=$run_attempt"
+                echo "DIAGNOSTIC_RUN_ID=$run_id"
+                echo "DIAGNOSTIC_STATUS=$status"
+                echo "DIAGNOSTIC_CONCLUSION=$conclusion"
+                echo "DIAGNOSTIC_CREATED_AT=$created_at"
+                echo "DIAGNOSTIC_RUN_NUMBER=$run_number"
                 exit 0
               fi
             fi
-            sleep 10
+            sleep 8
           done
-          echo 'RouterAI acceptance did not complete within observer window' >&2
           exit 2
-
-      - name: Reconfirm canonical AIMETON GitHub MCP auth boundary
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
-            -X POST 'http://195.209.215.159:8082/mcp' \
-            -H 'Content-Type: application/json' \
-            -H 'Accept: application/json, text/event-stream' \
-            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"aimeton-mcp-infra-observer","version":"1"}}}')"
-          rc=$?
-          echo "AIMETON_GITHUB_MCP_PROBE curl_rc=$rc http_code=$code"
-          test "$rc" -eq 0
-          test "$code" != 000
