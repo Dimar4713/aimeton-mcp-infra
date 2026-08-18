@@ -22,7 +22,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          echo 'snapshot_refresh=2'
           curl --fail-with-body --silent --show-error --max-time 30 \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'Accept: application/vnd.github+json' \
@@ -32,7 +31,7 @@ jobs:
           python3 - "$RUNNER_TEMP/runs.json" "$TARGET_SHA" <<'PY'
           import json, sys
           path, sha=sys.argv[1:]
-          names=['Baseline CI','Deploy Stage','Configure DaData Stage','Runtime Persistence Reconcile','Stage Auth Persistence Guard','Stage Convergence']
+          names=['Baseline CI','Deploy Stage','Configure DaData Stage','Runtime Persistence Reconcile','Stage Auth Persistence Guard']
           runs=[r for r in json.load(open(path,encoding='utf-8')).get('workflow_runs',[]) if r.get('head_sha')==sha]
           print(f'TARGET_SHA={sha}')
           for name in names:
@@ -42,4 +41,10 @@ jobs:
                   continue
               r=matches[0]
               print(f"{name}=run_id:{r.get('id')} status:{r.get('status')} conclusion:{r.get('conclusion')} event:{r.get('event')} created:{r.get('created_at')}")
+          print('STAGE_CONVERGENCE_RUNS:')
+          matches=sorted([r for r in runs if r.get('name')=='Stage Convergence'], key=lambda r:r.get('created_at') or '')
+          if not matches:
+              print('  missing')
+          for r in matches:
+              print(f"  run_id:{r.get('id')} status:{r.get('status')} conclusion:{r.get('conclusion')} event:{r.get('event')} created:{r.get('created_at')} updated:{r.get('updated_at')}")
           PY
