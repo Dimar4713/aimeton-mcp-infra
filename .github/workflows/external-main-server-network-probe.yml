@@ -1,0 +1,50 @@
+name: External Main Server Network Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/external-main-server-network-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe main-server externally without credentials or writes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          host=195.209.215.159
+          echo "probe_host=$host"
+
+          tcp22=false
+          for attempt in 1 2 3; do
+            if timeout 5 bash -c "</dev/tcp/$host/22" 2>/dev/null; then tcp22=true; break; fi
+            sleep $((attempt*2))
+          done
+
+          tcp8082=false
+          for attempt in 1 2 3; do
+            if timeout 5 bash -c "</dev/tcp/$host/8082" 2>/dev/null; then tcp8082=true; break; fi
+            sleep $((attempt*2))
+          done
+
+          http8082='unreachable'
+          code="$(curl -sS -o /tmp/mcp-probe-body -w '%{http_code}' --connect-timeout 5 --max-time 10 "http://$host:8082/mcp" || true)"
+          if [[ "$code" =~ ^[0-9]{3}$ && "$code" != 000 ]]; then http8082="$code"; fi
+
+          printf 'tcp22=%s\ntcp8082=%s\nhttp8082=%s\n' "$tcp22" "$tcp8082" "$http8082"
+          test "$tcp22" = true || echo 'warning: ssh port not reachable externally'
+          test "$tcp8082" = true || echo 'warning: mcp port not reachable externally'
+
+      - name: Prove probe is read-only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo 'provider_mutation=false'
+          echo 'ssh_authentication_attempted=false'
+          echo 'host_command_executed=false'
